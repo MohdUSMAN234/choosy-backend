@@ -5,7 +5,11 @@ const { Groq } = require("groq-sdk");
 require("dotenv").config();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'https://yourdomain.com'], // replace with your domain
+  methods: ['GET', 'POST'],
+  credentials: true,
+}));
 app.use(bodyParser.json());
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -33,7 +37,12 @@ You are Choosy AI — an expert product comparison assistant. Your job is to pro
       "cons": ["No expandable storage", "Average camera"],
       "source": "Amazon / Flipkart / Croma",
       "link": "https://valid-buy-link.com",
-      "tags": ["tag1", "tag2", "tag3"],
+      "image": "https://image-link.jpg",
+      "specs": {
+        "RAM": "8GB",
+        "Processor": "Snapdragon 8 Gen 2"
+      },
+      "tags": ["budget", "camera", "gaming"],
       "festivalPrice": {
         "price": "₹17999",
         "festival": "Big Billion Days"
@@ -59,13 +68,13 @@ app.post("/scrape", async (req, res) => {
 
     let aiText = choices?.[0]?.message?.content?.trim() || "";
 
-    // Clean common JSON issues
+    // Clean and parse
     const cleaned = aiText
-      .replace(/[\u201C\u201D]/g, '"')     // Replace curly quotes
-      .replace(/,\s*}/g, '}')             // Remove trailing commas before }
-      .replace(/,\s*]/g, ']')             // Remove trailing commas before ]
-      .replace(/\\n/g, '')                // Remove literal \n
-      .replace(/(\r\n|\n|\r)/g, '');      // Remove newlines
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/,\s*}/g, '}')
+      .replace(/,\s*]/g, ']')
+      .replace(/\\n/g, '')
+      .replace(/(\r\n|\n|\r)/g, '');
 
     let parsed;
     try {
@@ -79,30 +88,27 @@ app.post("/scrape", async (req, res) => {
       return res.status(500).json({ error: "Missing products array", raw: aiText });
     }
 
-    // Validate and normalize products
     const result = parsed.products
       .filter(p => p.product && p.price && p.link && p.rating)
       .map(p => ({
-  product: p.product,
-  rating: p.rating,
-  summary: p.summary || "",
-  price: p.price,
-  pros: Array.isArray(p.pros) ? p.pros : [],
-  cons: Array.isArray(p.cons) ? p.cons : [],
-  source: p.source || "Unknown",
-  link: p.link?.startsWith("http")
-    ? p.link
-    : `https://www.google.com/search?q=${encodeURIComponent(p.product + " buy")}`,
-  tags: Array.isArray(p.tags) ? p.tags : [],
-  festivalPrice: p.festivalPrice && typeof p.festivalPrice.price === "string"
-    ? {
-        price: p.festivalPrice.price,
-        festival: p.festivalPrice.festival || "Festival Deal"
-      }
-    : null,
-  likes: typeof p.likes === "number" ? p.likes : Math.floor(Math.random() * 50) + 50,
-}))
-
+        id: crypto.randomUUID(),
+        product: p.product,
+        rating: p.rating,
+        summary: p.summary || "",
+        price: p.price,
+        pros: Array.isArray(p.pros) ? p.pros : [],
+        cons: Array.isArray(p.cons) ? p.cons : [],
+        source: p.source || "Unknown",
+        link: p.link.startsWith("http") ? p.link : `https://www.google.com/search?q=${encodeURIComponent(p.product + " buy")}`,
+        image: p.image || "https://via.placeholder.com/300x200?text=No+Image",
+        tags: Array.isArray(p.tags) ? p.tags : [],
+        specs: p.specs || {},
+        festivalPrice: p.festivalPrice?.price ? {
+          price: p.festivalPrice.price,
+          festival: p.festivalPrice.festival || "Festival Deal"
+        } : null,
+        likes: typeof p.likes === "number" ? p.likes : Math.floor(Math.random() * 50) + 50,
+      }));
 
     return res.json({
       result,
