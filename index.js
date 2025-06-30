@@ -6,7 +6,10 @@ require("dotenv").config();
 
 const app = express();
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://yourdomain.com'], // replace with your domain
+  origin: [
+    'http://localhost:3000',
+    'https://choosy-frontend.vercel.app' // Replace with your Vercel URL
+  ],
   methods: ['GET', 'POST'],
   credentials: true,
 }));
