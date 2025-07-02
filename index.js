@@ -2,13 +2,16 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { Groq } = require("groq-sdk");
+const axios = require("axios");
+const cheerio = require("cheerio");
+const crypto = require("crypto");
 require("dotenv").config();
 
 const app = express();
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'https://choosy-frontend.vercel.app' // Replace with your Vercel URL
+    'https://choosy-frontend.vercel.app'
   ],
   methods: ['GET', 'POST'],
   credentials: true,
@@ -18,7 +21,7 @@ app.use(bodyParser.json());
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const SYSTEM_PROMPT = `
-You are Choosy AI — an expert product comparison assistant. Your job is to provide an honest, up-to-date, and accurate comparison of products based on the user’s query.
+You are Choosy AI — an expert product comparison assistant. Your job is to provide an honest, up-to-date, and accurate comparison of products based on the user's query.
 
 ⚠️ VERY IMPORTANT:
 - Respond ONLY in **valid pure JSON**, NO markdown, no explanations, no code formatting.
@@ -57,8 +60,51 @@ You are Choosy AI — an expert product comparison assistant. Your job is to pro
 }
 `.trim();
 
+// Google Image Search API
+app.get("/api/image-search", async (req, res) => {
+  const { query } = req.query;
+  
+  if (!query) {
+    return res.status(400).json({ error: "Query parameter is required" });
+  }
+
+  try {
+    // Using a scraping approach since Google's custom search API has limitations
+    const response = await axios.get(`https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=isch`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+
+    const $ = cheerio.load(response.data);
+    const imageUrls = [];
+    
+    $('img').each((i, element) => {
+      const src = $(element).attr('src');
+      if (src && src.startsWith('http')) {
+        imageUrls.push(src);
+      }
+    });
+
+    // Return the first valid image URL
+    if (imageUrls.length > 0) {
+      return res.json({ imageUrl: imageUrls[0] });
+    }
+
+    return res.status(404).json({ error: "No images found" });
+  } catch (error) {
+    console.error("Image search error:", error);
+    return res.status(500).json({ error: "Failed to fetch images" });
+  }
+});
+
+// Main product comparison endpoint
 app.post("/scrape", async (req, res) => {
   const { query } = req.body;
+
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: "Invalid query parameter" });
+  }
 
   try {
     const { choices } = await groq.chat.completions.create({
@@ -67,6 +113,8 @@ app.post("/scrape", async (req, res) => {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: `Compare and recommend best options for: ${query}` },
       ],
+      temperature: 0.7,
+      max_tokens: 2000,
     });
 
     let aiText = choices?.[0]?.message?.content?.trim() || "";
@@ -125,4 +173,10 @@ app.post("/scrape", async (req, res) => {
   }
 });
 
-app.listen(5000, () => console.log("🚀 Choosy backend running at http://localhost:5000"));
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`🚀 Choosy backend running at http://localhost:${PORT}`));
